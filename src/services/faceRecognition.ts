@@ -1,40 +1,117 @@
 /**
- * Face Recognition Service
+ * Face Recognition Service — Production Implementation
  *
- * Architecture:
- * - Vision Camera captures frames
- * - This service generates face embeddings from captured photos
- * - Embeddings are sent to the server for matching
- *
- * Current implementation uses a deterministic hash-based mock.
- * To use real on-device inference, swap in one of:
- * - react-native-fast-tflite with FaceNet/MobileFaceNet model
- * - @vladkurkov/react-native-face-recognition
- * - Custom frame processor plugin
+ * Uses MobileFaceNet TFLite model for real face embedding generation.
+ * Input: 112×112 RGB image, normalized to [-1, 1]
+ * Output: 192-dimensional L2-normalized face embedding
  */
 
-import { File, Paths } from 'expo-file-system';
+import { loadTensorflowModel, TensorflowModel } from 'react-native-fast-tflite';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import * as jpeg from 'jpeg-js';
+import { Buffer } from 'buffer';
 
-const EMBEDDING_DIM = 128;
+const MODEL_INPUT_SIZE = 112;
+const EMBEDDING_DIM = 192;
+
+let model: TensorflowModel | null = null;
 
 /**
- * Generate a 128-dimensional face embedding from a captured photo URI.
+ * Initialize the MobileFaceNet TFLite model.
+ * Call this once on app startup.
+ */
+export async function initModel(): Promise<void> {
+  if (model) return;
+
+  try {
+    model = await loadTensorflowModel(
+      require('../../assets/models/mobilefacenet.tflite'),
+      'default',
+    );
+    console.log('MobileFaceNet model loaded successfully');
+    console.log('Input:', model.inputs[0]?.shape, model.inputs[0]?.dataType);
+    console.log('Output:', model.outputs[0]?.shape, model.outputs[0]?.dataType);
+  } catch (error) {
+    console.error('Failed to load MobileFaceNet model:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate a face embedding from a captured photo URI.
  *
- * MOCK IMPLEMENTATION: generates a deterministic embedding from image bytes.
- * Replace this with a real FaceNet model for production use.
+ * @param imageUri - file:// URI of the captured photo
+ * @param faceBounds - optional face bounding box for cropping
+ * @returns 192-dimensional embedding or null if failed
  */
 export async function generateEmbedding(
   imageUri: string,
+  faceBounds?: { x: number; y: number; width: number; height: number },
 ): Promise<number[] | null> {
+  if (!model) {
+    console.error('Model not initialized. Call initModel() first.');
+    return null;
+  }
+
   try {
-    const file = new File(imageUri);
-    if (!file.exists) return null;
+    // Step 1: Crop to face region (if provided) and resize to 112×112
+    const actions: any[] = [];
 
-    // Read image as base64 to create a deterministic "embedding"
-    const base64 = await file.base64();
+    if (faceBounds) {
+      actions.push({
+        crop: {
+          originX: Math.max(0, Math.round(faceBounds.x)),
+          originY: Math.max(0, Math.round(faceBounds.y)),
+          width: Math.round(faceBounds.width),
+          height: Math.round(faceBounds.height),
+        },
+      });
+    }
 
-    // Hash the base64 string into a reproducible 128-dim vector
-    return hashToEmbedding(base64);
+    actions.push({
+      resize: { width: MODEL_INPUT_SIZE, height: MODEL_INPUT_SIZE },
+    });
+
+    const processed = await manipulateAsync(imageUri, actions, {
+      format: SaveFormat.JPEG,
+      compress: 1,
+      base64: true,
+    });
+
+    if (!processed.base64) {
+      console.error('Failed to get base64 from processed image');
+      return null;
+    }
+
+    // Step 2: Decode JPEG to raw RGBA pixel data
+    const jpegBuffer = Buffer.from(processed.base64, 'base64');
+    const rawImage = jpeg.decode(jpegBuffer, { useTArray: true });
+
+    // Step 3: Convert RGBA to normalized RGB Float32Array [-1, 1]
+    const tensorSize = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE * 3;
+    const inputTensor = new Float32Array(tensorSize);
+
+    for (let i = 0; i < MODEL_INPUT_SIZE * MODEL_INPUT_SIZE; i++) {
+      const rgbaIdx = i * 4; // RGBA format from jpeg-js
+      const rgbIdx = i * 3;  // RGB for model input
+
+      inputTensor[rgbIdx] = rawImage.data[rgbaIdx] / 127.5 - 1.0;       // R
+      inputTensor[rgbIdx + 1] = rawImage.data[rgbaIdx + 1] / 127.5 - 1.0; // G
+      inputTensor[rgbIdx + 2] = rawImage.data[rgbaIdx + 2] / 127.5 - 1.0; // B
+    }
+
+    // Step 4: Run MobileFaceNet inference
+    const outputs = model.runSync([inputTensor]);
+    const rawEmbedding = outputs[0];
+
+    if (!rawEmbedding || rawEmbedding.length < EMBEDDING_DIM) {
+      console.error('Invalid model output, length:', rawEmbedding?.length);
+      return null;
+    }
+
+    // Step 5: L2-normalize the embedding
+    const embedding = Array.from(rawEmbedding as Float32Array).slice(0, EMBEDDING_DIM);
+    return l2Normalize(embedding);
   } catch (error) {
     console.error('Embedding generation failed:', error);
     return null;
@@ -42,26 +119,10 @@ export async function generateEmbedding(
 }
 
 /**
- * Deterministic hash -> embedding for testing.
- * Same image -> same embedding. Different images -> different embeddings.
+ * L2-normalize a vector to unit length.
  */
-function hashToEmbedding(input: string): number[] {
-  const embedding: number[] = [];
-  let hash = 0;
-
-  for (let i = 0; i < EMBEDDING_DIM; i++) {
-    // Simple hash using character codes at spaced intervals
-    const charIndex = Math.floor((i / EMBEDDING_DIM) * input.length);
-    const char = input.charCodeAt(charIndex % input.length);
-    hash = ((hash << 5) - hash + char) | 0;
-
-    // Normalize to [-1, 1] range like real embeddings
-    embedding.push(Math.sin(hash * (i + 1)));
-  }
-
-  // L2 normalize the vector
-  const norm = Math.sqrt(
-    embedding.reduce((sum, val) => sum + val * val, 0),
-  );
-  return embedding.map((val) => val / (norm || 1));
+function l2Normalize(vector: number[]): number[] {
+  const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+  if (norm === 0) return vector;
+  return vector.map((val) => val / norm);
 }

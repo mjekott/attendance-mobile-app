@@ -1,21 +1,21 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { useKioskStore } from '../src/stores/kioskStore';
 import { authApi } from '../src/services/api';
+import { useKioskStore } from '../src/stores/kioskStore';
 
 export default function SetupScreen() {
-  const [secretKey, setSecretKey] = useState('');
+  const [secretKey, setSecretKey] = useState('d42527fe6471c512265a');
   const [isLoading, setIsLoading] = useState(false);
   const { saveCredentials } = useKioskStore();
 

@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera for face recognition attendance."
-      }
+      },
+      "bundleIdentifier": "com.mjekott.attendancekiosk"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +29,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA"
-      ]
+      ],
+      "package": "com.mjekott.attendancekiosk"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,10 +38,22 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "react-native-vision-camera"
+      "react-native-vision-camera",
+      "react-native-fast-tflite",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
     ],
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "0cb9ed00-b2fd-4a98-a55b-9d5084429553"
+      }
     }
   }
 }

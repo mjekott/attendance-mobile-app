@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 
 const AUTO_RETURN_MS = 4000;
@@ -18,14 +19,14 @@ export default function ResultScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.back();
+      router.replace('/kiosk');
     }, AUTO_RETURN_MS);
 
     return () => clearTimeout(timer);
   }, []);
 
   return (
-    <View
+    <SafeAreaView
       style={[
         styles.container,
         isMatched ? styles.successBg : styles.failureBg,
@@ -51,8 +52,8 @@ export default function ResultScreen() {
       )}
 
       <Text style={styles.message}>{message}</Text>
-      <Text style={styles.returnText}>Returning to scanner...</Text>
-    </View>
+      <Text style={styles.returnText}>Returning to home...</Text>
+    </SafeAreaView>
   );
 }
 
