@@ -2,8 +2,15 @@ import { useEffect } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { useKioskAppState } from '../../src/hooks/useKioskAppState';
+import { useOfflineStore } from '../../src/stores/offlineStore';
 
 export default function KioskLayout() {
+  // Load offline cache from disk
+  const loadCache = useOfflineStore((s) => s.load);
+  useEffect(() => {
+    loadCache();
+  }, []);
+
   // Track app foreground/background and update server status
   useKioskAppState();
 

@@ -4,8 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FaceCamera, DetectedFace } from '../../src/components/FaceCamera';
 import { generateEmbedding } from '../../src/services/faceRecognition';
-import { attendanceApi } from '../../src/services/api';
+import { attendanceApi, syncApi } from '../../src/services/api';
 import { useKioskStore } from '../../src/stores/kioskStore';
+import { useOfflineStore } from '../../src/stores/offlineStore';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
+import { matchLocal } from '../../src/services/offlineMatch';
 
 export default function ScanScreen() {
   const { employeeId } = useLocalSearchParams<{ employeeId: string }>();
@@ -14,6 +17,8 @@ export default function ScanScreen() {
   const [livenessMessage, setLivenessMessage] = useState('');
   const [livenessPassed, setLivenessPassed] = useState(false);
   const { accessToken } = useKioskStore();
+  const { getCachedUser, cacheUser, addToQueue } = useOfflineStore();
+  const isOnline = useNetworkStatus();
 
   const handleFaceCapture = useCallback(
     async (uri: string, face: DetectedFace) => {
@@ -27,7 +32,90 @@ export default function ScanScreen() {
           return;
         }
 
+        const cached = getCachedUser(employeeId!);
+
+        if (cached) {
+          // Cache-first: match locally for instant result
+          const local = matchLocal(embedding, cached.embeddings);
+
+          if (local.matched) {
+            const now = new Date().toISOString();
+
+            // Queue for background sync
+            addToQueue({
+              type: 'ATTENDANCE',
+              employeeId: employeeId!,
+              action: 'CHECKIN',
+              timestamp: now,
+              confidence: local.confidence,
+            });
+
+            // Also sync with server in background (fire-and-forget)
+            if (isOnline) {
+              attendanceApi.verify(accessToken, embedding, employeeId!).catch(() => {});
+            }
+
+            router.replace({
+              pathname: '/kiosk/result',
+              params: {
+                matched: 'true',
+                userName: cached.name,
+                action: '',
+                message: 'Identity verified',
+                timestamp: now,
+              },
+            });
+            return;
+          }
+
+          // Local match failed — if online, try server (embeddings may have been updated)
+          if (!isOnline) {
+            router.replace({
+              pathname: '/kiosk/result',
+              params: {
+                matched: 'false',
+                userName: '',
+                action: '',
+                message: 'Face did not match. Please try again.',
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        }
+
+        // Not in cache or local match failed — need network
+        if (!isOnline) {
+          router.replace({
+            pathname: '/kiosk/result',
+            params: {
+              matched: 'false',
+              userName: '',
+              action: '',
+              message: 'First-time check-in requires internet connectivity.',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        // API call
         const result = await attendanceApi.verify(accessToken, embedding, employeeId!);
+
+        // On successful match, cache embeddings for next time
+        if (result.matched) {
+          if (!cached) {
+            syncApi
+              .getUserEmbeddings(accessToken, employeeId!)
+              .then((userData) => {
+                cacheUser(employeeId!, {
+                  name: userData.name,
+                  embeddings: userData.embeddings,
+                });
+              })
+              .catch(() => {});
+          }
+        }
 
         router.replace({
           pathname: '/kiosk/result',
@@ -45,7 +133,7 @@ export default function ScanScreen() {
         setIsProcessing(false);
       }
     },
-    [isProcessing, accessToken],
+    [isProcessing, accessToken, isOnline],
   );
 
   const handleLivenessUpdate = useCallback(
@@ -91,7 +179,9 @@ export default function ScanScreen() {
       <Text style={styles.hint}>
         {isProcessing
           ? 'Please wait...'
-          : 'Look at the camera — verification is automatic'}
+          : !isOnline
+            ? 'Offline mode — cached users only'
+            : 'Look at the camera — verification is automatic'}
       </Text>
     </SafeAreaView>
   );

@@ -8,22 +8,15 @@ export default function KioskHomeScreen() {
   const { kioskName, location, clearCredentials } = useKioskStore();
   const isOnline = useNetworkStatus();
 
-  if (!isOnline) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineIcon}>!</Text>
-          <Text style={styles.offlineTitle}>Device Offline</Text>
-          <Text style={styles.offlineText}>
-            This kiosk requires an internet connection to operate.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
+      {/* Offline banner */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineText}>You're offline — only previously verified users can check in</Text>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
@@ -185,27 +178,17 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
   },
   offlineBanner: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  offlineIcon: {
-    fontSize: 48,
-    color: '#EF4444',
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  offlineTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#F8FAFC',
-    marginBottom: 8,
+    backgroundColor: '#92400E',
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    marginHorizontal: 24,
+    borderRadius: 8,
+    marginBottom: 12,
   },
   offlineText: {
-    fontSize: 16,
-    color: '#94A3B8',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FEF3C7',
     textAlign: 'center',
-    lineHeight: 24,
   },
 });

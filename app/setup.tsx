@@ -15,7 +15,7 @@ import { authApi } from '../src/services/api';
 import { useKioskStore } from '../src/stores/kioskStore';
 
 export default function SetupScreen() {
-  const [secretKey, setSecretKey] = useState('d42527fe6471c512265a');
+  const [secretKey, setSecretKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { saveCredentials } = useKioskStore();
 

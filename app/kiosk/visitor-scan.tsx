@@ -5,12 +5,16 @@ import { router } from 'expo-router';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { visitorsApi } from '../../src/services/api';
 import { useKioskStore } from '../../src/stores/kioskStore';
+import { useOfflineStore } from '../../src/stores/offlineStore';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 
 export default function VisitorScanScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const { accessToken } = useKioskStore();
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('front');
+  const { getCachedPass, markPassUsed, addToQueue } = useOfflineStore();
+  const isOnline = useNetworkStatus();
 
   const handleCodeScanned = useCallback(
     async (codes: { value?: string }[]) => {
@@ -19,9 +23,58 @@ export default function VisitorScanScreen() {
       if (!value || value.length !== 6) return;
 
       setIsProcessing(true);
+      const upperCode = value.toUpperCase();
 
       try {
-        const result = await visitorsApi.verify(accessToken, value.toUpperCase());
+        // Check local cache first
+        const cached = getCachedPass(upperCode);
+
+        if (cached) {
+          const action = cached.checkedIn && !cached.checkedOut ? 'CHECKOUT' : 'CHECKIN';
+          const now = new Date().toISOString();
+
+          markPassUsed(upperCode, action);
+          addToQueue({
+            type: 'VISITOR',
+            accessCode: upperCode,
+            action,
+            timestamp: now,
+          });
+
+          if (isOnline) {
+            visitorsApi.verify(accessToken, upperCode).catch(() => {});
+          }
+
+          router.replace({
+            pathname: '/kiosk/visitor-result',
+            params: {
+              valid: 'true',
+              visitorName: cached.visitorName,
+              hostName: cached.hostName,
+              purpose: cached.purpose,
+              action,
+              message: action === 'CHECKIN' ? 'Welcome!' : 'Goodbye!',
+            },
+          });
+          return;
+        }
+
+        if (!isOnline) {
+          router.replace({
+            pathname: '/kiosk/visitor-result',
+            params: {
+              valid: 'false',
+              visitorName: '',
+              hostName: '',
+              purpose: '',
+              action: '',
+              message: 'Cannot verify this code offline — not in cache.',
+            },
+          });
+          return;
+        }
+
+        const result = await visitorsApi.verify(accessToken, upperCode);
 
         router.replace({
           pathname: '/kiosk/visitor-result',
@@ -40,7 +93,7 @@ export default function VisitorScanScreen() {
         setIsProcessing(false);
       }
     },
-    [isProcessing, accessToken],
+    [isProcessing, accessToken, isOnline],
   );
 
   if (!hasPermission) {

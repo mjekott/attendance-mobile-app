@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-// Change this to your server URL
-const BASE_URL = 'https://attendace-api-crse.onrender.com/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL!;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -90,6 +89,44 @@ export const kioskApi = {
       { status },
       { headers: { Authorization: `Bearer ${token}` } },
     );
+  },
+};
+
+export const syncApi = {
+  getUserEmbeddings: async (token: string, employeeId: string) => {
+    const { data } = await apiClient.get<{
+      id: string;
+      employeeId: string;
+      name: string;
+      embeddings: number[][];
+    }>(`/users/${employeeId}/embeddings`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data;
+  },
+  getGatePasses: async (token: string) => {
+    const { data } = await apiClient.get<Array<{
+      accessCode: string;
+      visitorName: string;
+      hostName: string;
+      purpose: string;
+      status: string;
+      expectedDate: string;
+      checkedIn: string | null;
+      checkedOut: string | null;
+    }>>('/sync/gate-passes', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data;
+  },
+  pushQueue: async (token: string, records: any[]) => {
+    const { data } = await apiClient.post<{
+      processed: number;
+      errors: { index: number; error: string }[];
+    }>('/sync/queue', { records }, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data;
   },
 };
 

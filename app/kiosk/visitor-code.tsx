@@ -4,18 +4,73 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { visitorsApi } from '../../src/services/api';
 import { useKioskStore } from '../../src/stores/kioskStore';
+import { useOfflineStore } from '../../src/stores/offlineStore';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 
 export default function VisitorCodeScreen() {
   const [code, setCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const { accessToken } = useKioskStore();
+  const { getCachedPass, markPassUsed, addToQueue } = useOfflineStore();
+  const isOnline = useNetworkStatus();
 
   const handleVerify = async () => {
     if (code.length !== 6 || !accessToken) return;
     setIsVerifying(true);
+    const upperCode = code.toUpperCase();
 
     try {
-      const result = await visitorsApi.verify(accessToken, code.toUpperCase());
+      // Check local cache first
+      const cached = getCachedPass(upperCode);
+
+      if (cached) {
+        const action = cached.checkedIn && !cached.checkedOut ? 'CHECKOUT' : 'CHECKIN';
+        const now = new Date().toISOString();
+
+        markPassUsed(upperCode, action);
+        addToQueue({
+          type: 'VISITOR',
+          accessCode: upperCode,
+          action,
+          timestamp: now,
+        });
+
+        // Sync with server in background
+        if (isOnline) {
+          visitorsApi.verify(accessToken, upperCode).catch(() => {});
+        }
+
+        router.replace({
+          pathname: '/kiosk/visitor-result',
+          params: {
+            valid: 'true',
+            visitorName: cached.visitorName,
+            hostName: cached.hostName,
+            purpose: cached.purpose,
+            action,
+            message: action === 'CHECKIN' ? 'Welcome!' : 'Goodbye!',
+          },
+        });
+        return;
+      }
+
+      // Not in cache — need network
+      if (!isOnline) {
+        router.replace({
+          pathname: '/kiosk/visitor-result',
+          params: {
+            valid: 'false',
+            visitorName: '',
+            hostName: '',
+            purpose: '',
+            action: '',
+            message: 'Cannot verify this code offline — not in cache.',
+          },
+        });
+        return;
+      }
+
+      const result = await visitorsApi.verify(accessToken, upperCode);
 
       router.replace({
         pathname: '/kiosk/visitor-result',

@@ -1,24 +1,33 @@
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import * as Network from 'expo-network';
 import { useKioskStore } from '../stores/kioskStore';
+import { useOfflineStore } from '../stores/offlineStore';
 import { authApi, kioskApi } from '../services/api';
+
+async function isOnline(): Promise<boolean> {
+  try {
+    const state = await Network.getNetworkStateAsync();
+    return state.isInternetReachable ?? state.isConnected ?? false;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Tracks app foreground/background state and notifies the server.
- * - App comes to foreground → mark online + refresh JWT
- * - App goes to background → mark offline
+ * - App comes to foreground → if online: mark online + refresh JWT + flush queue + sync gate passes
+ * - App goes to background → if online: mark offline
  */
 export function useKioskAppState() {
   const { secretKey, accessToken, saveCredentials } = useKioskStore();
+  const { flushQueue, syncGatePasses } = useOfflineStore();
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     if (!secretKey || !accessToken) return;
 
-    // Mark online on mount
-    kioskApi.updateStatus(accessToken, 'online').catch(() => {});
-    // Also refresh JWT on mount
-    refreshToken();
+    onForeground(accessToken);
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
@@ -26,14 +35,22 @@ export function useKioskAppState() {
       subscription.remove();
     };
 
-    function handleAppStateChange(nextState: AppStateStatus) {
+    async function onForeground(token: string) {
+      if (!(await isOnline())) return;
+
+      kioskApi.updateStatus(token, 'online').catch(() => {});
+      refreshToken();
+      flushQueue(token).catch(() => {});
+      syncGatePasses(token).catch(() => {});
+    }
+
+    async function handleAppStateChange(nextState: AppStateStatus) {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        // App came to foreground
-        kioskApi.updateStatus(accessToken!, 'online').catch(() => {});
-        refreshToken();
+        onForeground(accessToken!);
       } else if (nextState.match(/inactive|background/)) {
-        // App going to background
-        kioskApi.updateStatus(accessToken!, 'offline').catch(() => {});
+        if (await isOnline()) {
+          kioskApi.updateStatus(accessToken!, 'offline').catch(() => {});
+        }
       }
       appState.current = nextState;
     }
