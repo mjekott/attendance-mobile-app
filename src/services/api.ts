@@ -83,6 +83,16 @@ export const attendanceApi = {
   },
 };
 
+export const kioskApi = {
+  updateStatus: async (token: string, status: 'online' | 'offline') => {
+    await apiClient.patch(
+      '/kiosks/status',
+      { status },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+  },
+};
+
 export const visitorsApi = {
   verify: async (token: string, accessCode: string) => {
     const { data } = await apiClient.post<{

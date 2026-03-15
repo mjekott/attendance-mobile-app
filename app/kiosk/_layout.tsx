@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import { Stack } from 'expo-router';
-import { useKioskHeartbeat } from '../../src/hooks/useKioskHeartbeat';
+import { useKioskAppState } from '../../src/hooks/useKioskAppState';
 
 export default function KioskLayout() {
-  // Refresh JWT and update server lastSeen periodically
-  useKioskHeartbeat();
+  // Track app foreground/background and update server status
+  useKioskAppState();
 
   // Disable Android back button in kiosk mode
   useEffect(() => {

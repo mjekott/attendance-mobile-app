@@ -1,11 +1,21 @@
 import { useState, useEffect } from 'react';
+import { AppState } from 'react-native';
 
 export function useNetworkStatus(): boolean {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    // Simple connectivity check by pinging the API
-    const checkConnection = async () => {
+    checkConnection();
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        checkConnection();
+      }
+    });
+
+    return () => subscription.remove();
+
+    async function checkConnection() {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
@@ -17,11 +27,7 @@ export function useNetworkStatus(): boolean {
       } catch {
         setIsOnline(false);
       }
-    };
-
-    checkConnection();
-    const interval = setInterval(checkConnection, 10000);
-    return () => clearInterval(interval);
+    }
   }, []);
 
   return isOnline;

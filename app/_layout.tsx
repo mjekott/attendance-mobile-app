@@ -24,7 +24,6 @@ export default function RootLayout() {
       <View style={styles.loading}>
         <StatusBar style="light" />
         <ActivityIndicator size="large" color="#3B82F6" />
-
       </View>
     );
   }
